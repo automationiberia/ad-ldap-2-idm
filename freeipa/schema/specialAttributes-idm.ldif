@@ -1,0 +1,21 @@
+# NOT RECOMMENDED for the lab path (AD trust + ID Overrides).
+#
+# Optional experiment: extend IdM/389 schema so migrate-ds can keep
+# specialAttributes + hostAccess. Prefer ignoring OC/attr and remapping
+# hostAccess → HBAC. Trust path: docs/05-mapping.md.
+# migrate-ds: docs/07-troubleshooting.md appendix.
+#
+# If you still apply this as Directory Manager:
+#   ldapmodify -D "cn=Directory Manager" -W -H ldap://localhost \
+#     -f freeipa/schema/specialAttributes-idm.ldif
+#
+# Do NOT add specialAttributes to ipaUserObjectClasses if source entries also
+# carry the OC (duplicate objectClass → Type or value exists on migrate-ds).
+
+dn: cn=schema
+changetype: modify
+add: attributeTypes
+attributeTypes: ( 1.3.6.1.4.1.99999.1.1.1 NAME 'hostAccess' DESC 'Hosts this subject is allowed to access' EQUALITY caseIgnoreMatch SUBSTR caseIgnoreSubstringsMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'openldap-to-idm-mig-lab' )
+-
+add: objectClasses
+objectClasses: ( 1.3.6.1.4.1.99999.1.2.1 NAME 'specialAttributes' DESC 'Enterprise marker OC for ACL-related attrs' SUP top AUXILIARY MAY ( hostAccess ) X-ORIGIN 'openldap-to-idm-mig-lab' )

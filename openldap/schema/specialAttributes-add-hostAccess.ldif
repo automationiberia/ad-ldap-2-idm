@@ -1,0 +1,21 @@
+# Patch: OC specialAttributes loaded without hostAccess attributeType.
+#
+# 1) Find DN index:
+#    ldapsearch -Y EXTERNAL -H ldapi:/// -LLL -b cn=schema,cn=config \
+#      "(olcObjectClasses=*specialAttributes*)" dn
+#    → dn: cn={10}specialattributes,cn=schema,cn=config
+#
+# 2) Replace {10} below if needed, then:
+#    ldapmodify -Y EXTERNAL -H ldapi:/// -f specialAttributes-add-hostAccess.ldif
+#
+# Symptom without this patch:
+#   ldap_add: Undefined attribute type (17)
+#   additional info: hostAccess: attribute type undefined
+
+dn: cn={10}specialattributes,cn=schema,cn=config
+changetype: modify
+add: olcAttributeTypes
+olcAttributeTypes: ( 1.3.6.1.4.1.99999.1.1.1 NAME 'hostAccess' DESC 'Hosts a subject may access' EQUALITY caseIgnoreMatch SUBSTR caseIgnoreSubstringsMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )
+-
+replace: olcObjectClasses
+olcObjectClasses: ( 1.3.6.1.4.1.99999.1.2.1 NAME 'specialAttributes' DESC 'Lab marker OC for ACL-related attrs' SUP top AUXILIARY MAY ( hostAccess ) )

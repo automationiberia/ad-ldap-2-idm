@@ -1,0 +1,33 @@
+# Generated LDIF 
+openldap/bootstrap/bcnconsulting-enterprise-600users-60groups-100sudo.ldif
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Local secrets / overrides
+*.env.local
+podman/ldap.env.local
+
+# Export artifacts
+examples/*-export.ldif
+*.bak
+.run/
+examples/openldap-acls-export.ldif
+migration_validation_report.txt
+analyze_source.d/
+openldap_migration_*.tar.gz
+ipa_remap_access.d/
+ipa_remap_access.sh
+trust_catalog.d/
+ipa_trust_policy.d/
+ipa_trust_overrides.d/

@@ -1,0 +1,28 @@
+# Lab ACLs for osixia/openldap (cn=config)
+#
+# BEFORE applying:
+#   podman exec openldap ldapsearch -Y EXTERNAL -H ldapi:/// -LLL \
+#     -b "cn=config" "(olcSuffix=dc=bcnconsulting,dc=com)" dn
+#
+# If the DN is not olcDatabase={1}mdb,cn=config, edit this file accordingly.
+#
+# Apply:
+#   podman cp openldap/bootstrap/acl-lab.ldif openldap:/tmp/acl-lab.ldif
+#   podman exec openldap ldapmodify -Y EXTERNAL -H ldapi:/// -f /tmp/acl-lab.ldif
+#
+# Intent:
+#   - anonymous: auth only
+#   - self: write own password, read own entry
+#   - members of grp-linux (posixGroup/memberUid): read ou=People
+#   - users: read groups (needed for NSS/SSSD-style lookups in lab)
+#   - authenticated: read sudoers (optional lab behaviour)
+
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+replace: olcAccess
+olcAccess: {0}to attrs=userPassword,shadowLastChange by self write by anonymous auth by * none
+olcAccess: {1}to dn.subtree="ou=People,dc=bcnconsulting,dc=com" by self read by group/posixGroup/memberUid="cn=grp-linux,ou=Groups,dc=bcnconsulting,dc=com" read by users read by * none
+olcAccess: {2}to dn.subtree="ou=Groups,dc=bcnconsulting,dc=com" by users read by * none
+olcAccess: {3}to dn.subtree="ou=SUDOers,dc=bcnconsulting,dc=com" by users read by * none
+olcAccess: {4}to dn.subtree="ou=Hosts,dc=bcnconsulting,dc=com" by users read by * none
+olcAccess: {5}to * by self read by users read by * none

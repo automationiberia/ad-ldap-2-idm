@@ -1,0 +1,26 @@
+# Base organizational units for the OpenLDAP migration lab
+# Domain: dc=bcnconsulting,dc=com (created by osixia/openldap bootstrap)
+
+dn: ou=People,dc=bcnconsulting,dc=com
+objectClass: top
+objectClass: organizationalUnit
+ou: People
+description: User accounts (posixAccount / inetOrgPerson)
+
+dn: ou=Groups,dc=bcnconsulting,dc=com
+objectClass: top
+objectClass: organizationalUnit
+ou: Groups
+description: POSIX groups (posixGroup / RFC2307)
+
+dn: ou=Hosts,dc=bcnconsulting,dc=com
+objectClass: top
+objectClass: organizationalUnit
+ou: Hosts
+description: Linux hosts (ipHost)
+
+dn: ou=SUDOers,dc=bcnconsulting,dc=com
+objectClass: top
+objectClass: organizationalUnit
+ou: SUDOers
+description: LDAP sudoRole policies

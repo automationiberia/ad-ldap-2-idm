@@ -70,6 +70,18 @@ USER_CROSSWALK_FIELDS = [
     "gecos",
 ]
 
+USER_HOST_ACCESS_REVIEW_FIELDS = [
+    "openldap_uid",
+    "host_access_count",
+    "hostgroups",
+    "member_of_groups",
+    "covering_groups",
+    "partial_overlap_groups",
+    "review_status",
+    "recommended_action",
+    "host_access_sample",
+]
+
 
 def collect_group_policy(
     group_entries: list[dict[str, list[str]]],
@@ -117,6 +129,137 @@ def collect_user_host_access(
             }
         )
     return sorted(rows, key=lambda r: r["openldap_uid"])
+
+
+def build_uid_to_groups(
+    group_entries: list[dict[str, list[str]]],
+) -> dict[str, list[str]]:
+    """Map posixGroup ``memberUid`` → list of group ``cn``."""
+    uid_to_groups: dict[str, list[str]] = defaultdict(list)
+    for group in group_entries:
+        cn = (group.get("cn") or [None])[0]
+        if not cn:
+            continue
+        for member in group.get("memberUid") or []:
+            uid_to_groups[member.strip()].append(cn)
+    for uid in uid_to_groups:
+        uid_to_groups[uid] = sorted(set(uid_to_groups[uid]))
+    return dict(uid_to_groups)
+
+
+def build_group_hostgroups(
+    group_entries: list[dict[str, list[str]]],
+    domain: str,
+) -> dict[str, set[str]]:
+    """Group ``cn`` → hostgroup names derived from ``hostAccess`` (if any)."""
+    out: dict[str, set[str]] = {}
+    for group in group_entries:
+        cn = (group.get("cn") or [None])[0]
+        if not cn:
+            continue
+        ha = group.get("hostAccess") or []
+        if not ha:
+            continue
+        out[cn] = host_access_to_hostgroups(ha, domain)
+    return out
+
+
+def build_user_host_access_review(
+    user_ha_rows: list[dict],
+    *,
+    uid_to_groups: dict[str, list[str]],
+    group_hostgroups: dict[str, set[str]],
+) -> list[dict]:
+    """
+    Engagement review rows for per-user ``hostAccess``.
+
+    Compares each user's hostgroups with those of LDAP groups the user belongs to.
+    """
+    review: list[dict] = []
+    for row in user_ha_rows:
+        uid = row["openldap_uid"]
+        user_hgs = set(row.get("hostgroups") or [])
+        member_groups = uid_to_groups.get(uid, [])
+        covering: list[str] = []
+        partial: list[str] = []
+        for gcn in member_groups:
+            g_hgs = group_hostgroups.get(gcn)
+            if not g_hgs:
+                continue
+            if user_hgs <= g_hgs:
+                covering.append(gcn)
+            elif user_hgs & g_hgs:
+                partial.append(gcn)
+
+        if covering:
+            status = "likely_covered_by_group"
+            action = (
+                "Confirm AD membership in equivalent group; HBAC via POSIX wrapper "
+                f"for: {', '.join(covering)}"
+            )
+        elif partial:
+            status = "partial_group_overlap"
+            action = (
+                "User hostAccess is wider than group hostAccess — map to AD group or "
+                "explicit HBAC exception"
+            )
+        elif member_groups:
+            status = "member_of_groups_without_hostaccess"
+            action = (
+                "User is in groups but none define hostAccess — add AD group + "
+                "policy row or explicit HBAC"
+            )
+        else:
+            status = "no_ldap_group_membership"
+            action = "No memberUid link — explicit HBAC or new AD group required"
+
+        host_access = row.get("host_access") or []
+        sample = "; ".join(host_access[:4])
+        if len(host_access) > 4:
+            sample += f"; … (+{len(host_access) - 4} more)"
+
+        review.append(
+            {
+                "openldap_uid": uid,
+                "host_access_count": len(host_access),
+                "hostgroups": ";".join(sorted(user_hgs)),
+                "member_of_groups": ";".join(member_groups),
+                "covering_groups": ";".join(covering),
+                "partial_overlap_groups": ";".join(partial),
+                "review_status": status,
+                "recommended_action": action,
+                "host_access_sample": sample,
+            }
+        )
+    return review
+
+
+def print_user_host_access_review(review_rows: list[dict], csv_path: Path) -> None:
+    """Stdout summary for engagement review."""
+    by_status: dict[str, int] = defaultdict(int)
+    for row in review_rows:
+        by_status[row["review_status"]] += 1
+
+    print(f"\nUser-level hostAccess review ({len(review_rows)} entries)")
+    print(f"  Wrote {csv_path}")
+    print("  Status counts:")
+    for status in sorted(by_status):
+        print(f"    {status}: {by_status[status]}")
+    print()
+    print(f"  {'UID':<20} {'STATUS':<32} COVERING / NOTES")
+    print("  " + "-" * 72)
+    for row in review_rows:
+        uid = row["openldap_uid"][:19]
+        status = row["review_status"][:31]
+        note = row["covering_groups"] or row.get("partial_overlap_groups") or "—"
+        if len(note) > 28:
+            note = note[:25] + "…"
+        print(f"  {uid:<20} {status:<32} {note}")
+    print()
+    print(
+        "  Not applied automatically — edit review CSV / runbook, then map via AD "
+        "group + ipa_remap_trust_policy.py or manual HBAC."
+    )
 
 
 def collect_user_overrides(user_entries: list[dict[str, list[str]]]) -> list[dict]:
@@ -274,10 +417,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {missing_n} row(s) still need ad_user_principal (AD export or manual)")
 
     if user_ha_rows:
-        print(
-            f"\nWARNING: {len(user_ha_rows)} user-level hostAccess entries — "
-            "review user_host_access_exceptions in policy-catalog.json"
+        uid_to_groups = build_uid_to_groups(groups)
+        group_hg = build_group_hostgroups(groups, args.domain)
+        review_rows = build_user_host_access_review(
+            user_ha_rows,
+            uid_to_groups=uid_to_groups,
+            group_hostgroups=group_hg,
         )
+        review_path = out / "user-host-access-review.csv"
+        write_csv(review_path, USER_HOST_ACCESS_REVIEW_FIELDS, review_rows)
+        print_user_host_access_review(review_rows, review_path)
 
     return 0
 

@@ -430,6 +430,7 @@ def collect_sudo_catalog_rows(
                 or [],
                 "sudo_not_before": rule.get("sudoNotBefore") or [],
                 "sudo_not_after": rule.get("sudoNotAfter") or [],
+                "sudo_order": rule.get("sudoOrder") or [],
                 "description": (rule.get("description") or [""])[0],
                 "hostgroups": hgroups,
             }
@@ -559,6 +560,12 @@ def sudorule_cmds_for_catalog_row(
 
     for opt in row.get("sudo_options") or []:
         cmds.append(["ipa", "sudorule-add-option", rule_name, f"--sudooption={opt}"])
+
+    sudo_order = row.get("sudo_order") or []
+    if sudo_order:
+        order_val = str(sudo_order[0]).strip()
+        if order_val.isdigit():
+            cmds.append(["ipa", "sudorule-mod", rule_name, f"--order={order_val}"])
 
     not_before = row.get("sudo_not_before") or []
     not_after = row.get("sudo_not_after") or []
